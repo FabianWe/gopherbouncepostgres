@@ -58,7 +58,7 @@ func NewMPostgreQueries(replaceMapping map[string]string) *PostgreQueries {
 	return res
 }
 
-func (q *PostgreQueries) Init() []string {
+func (q *PostgreQueries) InitUsers() []string {
 	return q.InitS
 }
 
