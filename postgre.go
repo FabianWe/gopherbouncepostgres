@@ -32,7 +32,8 @@ const (
 
 type PostgreQueries struct {
 	InitS                                                                            []string
-	GetUserS, GetUserByNameS, GetUserByEmailS, InsertUserS, UpdateUserS, DeleteUserS string
+	GetUserS, GetUserByNameS, GetUserByEmailS, InsertUserS,
+		UpdateUserS, DeleteUserS, UpdateFieldsS string
 	Replacer *gopherbouncedb.SQLTemplateReplacer
 }
 
@@ -55,6 +56,7 @@ func NewMPostgreQueries(replaceMapping map[string]string) *PostgreQueries {
 	res.InsertUserS = replacer.Apply(POSTGRE_INSERT_USER)
 	res.UpdateUserS = replacer.Apply(POSTGRE_UPDATE_USER)
 	res.DeleteUserS = replacer.Apply(POSTGRE_DELETE_USER)
+	res.UpdateFieldsS = replacer.Apply(POSTGRE_UPDATE_USER_FIELDS)
 	return res
 }
 
@@ -79,11 +81,31 @@ func (q *PostgreQueries) InsertUser() string {
 }
 
 func (q *PostgreQueries) UpdateUser(fields []string) string {
-	return q.UpdateUserS
+	if len(fields) == 0 {
+		return q.UpdateUserS
+	}
+	updates := make([]string, len(fields))
+	for i, fieldName := range fields {
+		if colName, has := DefaultPostgreRowNames[fieldName]; has {
+			updates[i] = colName + "=$" + strconv.Itoa(i+1)
+		} else {
+			panic(fmt.Sprintf("invalid field name \"%s\": Must be a valid field name of gopherbouncedb.UserModel", fieldName))
+		}
+	}
+	updateStr := strings.Join(updates, ",")
+	// replace updateStr and id param num in UpdateFieldS
+	// we don't create a replacer, too much overhead for just two entries
+	stmt := strings.Replace(q.UpdateFieldsS, "$UPDATE_CONTENT$", updateStr, 1)
+	stmt = strings.Replace(stmt, "$ID_PARAM_NUM$", "$"+strconv.Itoa(len(fields)+1), 1)
+	return stmt
 }
 
 func (q *PostgreQueries) DeleteUser() string {
 	return q.DeleteUserS
+}
+
+func (q *PostgreQueries) SupportsUserFields() bool {
+	return q.UpdateFieldsS != ""
 }
 
 type MyPostgreBridge struct{}
@@ -134,7 +156,6 @@ var (
 
 type PostgreStorage struct {
 	*gopherbouncedb.SQLUserStorage
-	UpdateFieldsS string
 }
 
 func NewPostgreStorage(db *sql.DB, replaceMapping map[string]string) *PostgreStorage {
@@ -142,7 +163,7 @@ func NewPostgreStorage(db *sql.DB, replaceMapping map[string]string) *PostgreSto
 	bridge := NewMyPostgreBridge()
 	sqlStorage := gopherbouncedb.NewSQLUserStorage(db, queries, bridge)
 	// TODO
-	res := PostgreStorage{sqlStorage, queries.Replacer.Apply(POSTGRE_UPDATE_USER_FIELDS)}
+	res := PostgreStorage{sqlStorage}
 	return &res
 }
 
@@ -170,51 +191,4 @@ func (s *PostgreStorage) InsertUser(user *gopherbouncedb.UserModel) (gopherbounc
 		return gopherbouncedb.InvalidUserID, err
 	}
 	return gopherbouncedb.UserID(userID), nil
-}
-
-func (s *PostgreStorage) UpdateUser(id gopherbouncedb.UserID, newCredentials *gopherbouncedb.UserModel, fields []string) error {
-	// if internal method not supplied or no fields given: use simple update from sql
-	if s.UpdateFieldsS == "" || len(fields) == 0 {
-		return s.SQLUserStorage.UpdateUser(id, newCredentials, fields)
-	}
-	// now perform a more sophisticated update
-	updates := make([]string, len(fields))
-	args := make([]interface{}, len(fields), len(fields) + 1)
-	for i, fieldName := range fields {
-		if colName, has := DefaultPostgreRowNames[fieldName]; has {
-			updates[i] = colName + "=$" + strconv.Itoa(i+1)
-		} else {
-			return fmt.Errorf("invalid field name \"%s\": Must be a valid field name of the user model", fieldName)
-		}
-		if arg, argErr := newCredentials.GetFieldByName(fieldName); argErr == nil {
-			fieldName = strings.ToLower(fieldName)
-			if fieldName == "datejoined" || fieldName == "lastlogin" {
-				if t, isTime := arg.(time.Time); isTime {
-					arg = s.Bridge.ConvertTime(t)
-				} else {
-					return fmt.Errorf("DateJoined / LastLogin must be time.Time, got type %v", reflect.TypeOf(arg))
-				}
-			}
-			args[i] = arg
-		} else {
-			return argErr
-		}
-	}
-	// append id to args
-	args = append(args, id)
-	// prepare update string
-	updateStr := strings.Join(updates, ",")
-	// replace updateStr and id param num in UpdateFieldS
-	// we don't create a replacer, too much overhead for just two entries
-	stmt := strings.Replace(s.UpdateFieldsS, "$UPDATE_CONTENT$", updateStr, 1)
-	stmt = strings.Replace(stmt, "$ID_PARAM_NUM$", "$"+strconv.Itoa(len(fields)+1), 1)
-	// execute statement
-	_, err := s.DB.Exec(stmt, args...)
-	if err != nil {
-		if s.Bridge.IsDuplicateUpdate(err) {
-			return gopherbouncedb.NewAmbiguousCredentials(fmt.Sprintf("unique constraint failed: %s", err.Error()))
-		}
-		return err
-	}
-	return nil
 }
