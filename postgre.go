@@ -164,7 +164,6 @@ func NewPGUserStorage(db *sql.DB, replaceMapping map[string]string) *PGUserStora
 	queries := NewMPostgreQueries(replaceMapping)
 	bridge := NewMyPostgreBridge()
 	sqlStorage := gopherbouncedb.NewSQLUserStorage(db, queries, bridge)
-	// TODO
 	res := PGUserStorage{sqlStorage}
 	return &res
 }
