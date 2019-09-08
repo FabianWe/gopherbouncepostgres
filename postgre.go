@@ -156,24 +156,25 @@ var (
 	DefaultPostgreRowNames = gopherbouncedb.DefaultUserRowNames
 )
 
-type PostgreStorage struct {
+type PGUserStorage struct {
 	*gopherbouncedb.SQLUserStorage
 }
 
-func NewPostgreStorage(db *sql.DB, replaceMapping map[string]string) *PostgreStorage {
+func NewPGUserStorage(db *sql.DB, replaceMapping map[string]string) *PGUserStorage {
 	queries := NewMPostgreQueries(replaceMapping)
 	bridge := NewMyPostgreBridge()
 	sqlStorage := gopherbouncedb.NewSQLUserStorage(db, queries, bridge)
 	// TODO
-	res := PostgreStorage{sqlStorage}
+	res := PGUserStorage{sqlStorage}
 	return &res
 }
 
 // overwrites because of returning, must use query row
-func (s *PostgreStorage) InsertUser(user *gopherbouncedb.UserModel) (gopherbouncedb.UserID, error) {
+func (s *PGUserStorage) InsertUser(user *gopherbouncedb.UserModel) (gopherbouncedb.UserID, error) {
 	user.ID = gopherbouncedb.InvalidUserID
 	now := time.Now().UTC()
 	var zeroTime time.Time
+	zeroTime = zeroTime.UTC()
 	// use the bridge conversion for time
 	// we do this because the bridge could be changed and doing this direct insert could go wrong
 	dateJoined := s.Bridge.ConvertTime(now)
