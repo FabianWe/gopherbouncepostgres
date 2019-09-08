@@ -114,18 +114,18 @@ func (b MyPostgreBridge) ConvertTime(t time.Time) interface{} {
 	return t
 }
 
-func (b MyPostgreBridge) ConvertExistsErr(err error) error {
+func (b MyPostgreBridge) IsDuplicateInsert(err error) bool {
 	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == POSTGRE_KEY_EXITS {
-		return gopherbouncedb.NewUserExists(fmt.Sprintf("unique constrained failed: %s", postgreErr.Error()))
+		return true
 	}
-	return err
+	return false
 }
 
-func (b MyPostgreBridge) ConvertAmbiguousErr(err error) error {
+func (b MyPostgreBridge) IsDuplicateUpdate(err error) bool {
 	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == POSTGRE_KEY_EXITS {
-		return gopherbouncedb.NewAmbiguousCredentials(fmt.Sprintf("unique constrained failed: %s", postgreErr.Error()))
+		return true
 	}
-	return err
+	return false
 }
 
 var (
@@ -163,7 +163,11 @@ func (s *PostgreStorage) InsertUser(user *gopherbouncedb.UserModel) (gopherbounc
 		user.IsActive, dateJoined, lastLogin).Scan(&userID)
 	if err != nil {
 		user.ID = gopherbouncedb.InvalidUserID
-		return gopherbouncedb.InvalidUserID, s.Bridge.ConvertExistsErr(err)
+		if s.Bridge.IsDuplicateInsert(err) {
+			return gopherbouncedb.InvalidUserID,
+				gopherbouncedb.NewUserExists(fmt.Sprintf("unique constraint failed: %s", err.Error()))
+		}
+		return gopherbouncedb.InvalidUserID, err
 	}
 	return gopherbouncedb.UserID(userID), nil
 }
@@ -207,7 +211,10 @@ func (s *PostgreStorage) UpdateUser(id gopherbouncedb.UserID, newCredentials *go
 	// execute statement
 	_, err := s.DB.Exec(stmt, args...)
 	if err != nil {
-		return s.Bridge.ConvertAmbiguousErr(err)
+		if s.Bridge.IsDuplicateUpdate(err) {
+			return gopherbouncedb.NewAmbiguousCredentials(fmt.Sprintf("unique constraint failed: %s", err.Error()))
+		}
+		return err
 	}
 	return nil
 }
