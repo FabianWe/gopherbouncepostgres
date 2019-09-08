@@ -50,6 +50,8 @@ func NewMPostgreQueries(replaceMapping map[string]string) *PostgreQueries {
 	res.Replacer = replacer
 	// first all init strings
 	res.InitS = append(res.InitS, replacer.Apply(POSTGRE_USERS_INIT))
+	res.InitS = append(res.InitS, replacer.Apply(POSTGRE_USERNAME_INDEX))
+	res.InitS = append(res.InitS, replacer.Apply(POSTGRE_EMAIL_INDEX))
 	res.GetUserS = replacer.Apply(POSTGRE_QUERY_USERID)
 	res.GetUserByNameS = replacer.Apply(POSTGRE_QUERY_USERNAME)
 	res.GetUserByEmailS = replacer.Apply(POSTGRE_QUERY_USERMAIL)
@@ -81,7 +83,7 @@ func (q *PostgreQueries) InsertUser() string {
 }
 
 func (q *PostgreQueries) UpdateUser(fields []string) string {
-	if len(fields) == 0 {
+	if len(fields) == 0 || !q.SupportsUserFields() {
 		return q.UpdateUserS
 	}
 	updates := make([]string, len(fields))
@@ -169,6 +171,7 @@ func NewPostgreStorage(db *sql.DB, replaceMapping map[string]string) *PostgreSto
 
 // overwrites because of returning, must use query row
 func (s *PostgreStorage) InsertUser(user *gopherbouncedb.UserModel) (gopherbouncedb.UserID, error) {
+	user.ID = gopherbouncedb.InvalidUserID
 	now := time.Now().UTC()
 	var zeroTime time.Time
 	// use the bridge conversion for time
@@ -190,5 +193,6 @@ func (s *PostgreStorage) InsertUser(user *gopherbouncedb.UserModel) (gopherbounc
 		}
 		return gopherbouncedb.InvalidUserID, err
 	}
+	user.ID = gopherbouncedb.UserID(userID)
 	return gopherbouncedb.UserID(userID), nil
 }
