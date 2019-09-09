@@ -12,29 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 package gopherbouncepostgres
 
 import (
-	"github.com/FabianWe/gopherbouncedb"
-	"time"
-	"fmt"
-	"reflect"
-	"github.com/lib/pq"
 	"database/sql"
-	"strings"
+	"fmt"
+	"github.com/FabianWe/gopherbouncedb"
+	"github.com/lib/pq"
+	"reflect"
 	"strconv"
+	"strings"
+	"time"
+)
+
+var (
+	DefaulgPGRowNames = gopherbouncedb.DefaultUserRowNames
 )
 
 const (
-	POSTGRE_KEY_EXITS = "23505"
+	// PGKeyExists is the error code from the pq driver that states
+	// that a key error occurred.
+	PGKeyExists = "23505"
 )
 
+// PostgreQueries implements gopherbouncedb.UserSQL with support for Postgres.
 type PostgreQueries struct {
-	InitS                                                                            []string
+	InitS []string
 	GetUserS, GetUserByNameS, GetUserByEmailS, InsertUserS,
-		UpdateUserS, DeleteUserS, UpdateFieldsS string
+	UpdateUserS, DeleteUserS, UpdateFieldsS string
 	Replacer *gopherbouncedb.SQLTemplateReplacer
+	RowNames map[string]string
 }
 
 func DefaultPostgreReplacer() *gopherbouncedb.SQLTemplateReplacer {
@@ -49,16 +56,17 @@ func NewMPostgreQueries(replaceMapping map[string]string) *PostgreQueries {
 	res := &PostgreQueries{}
 	res.Replacer = replacer
 	// first all init strings
-	res.InitS = append(res.InitS, replacer.Apply(POSTGRE_USERS_INIT))
-	res.InitS = append(res.InitS, replacer.Apply(POSTGRE_USERNAME_INDEX))
-	res.InitS = append(res.InitS, replacer.Apply(POSTGRE_EMAIL_INDEX))
-	res.GetUserS = replacer.Apply(POSTGRE_QUERY_USERID)
-	res.GetUserByNameS = replacer.Apply(POSTGRE_QUERY_USERNAME)
-	res.GetUserByEmailS = replacer.Apply(POSTGRE_QUERY_USERMAIL)
-	res.InsertUserS = replacer.Apply(POSTGRE_INSERT_USER)
-	res.UpdateUserS = replacer.Apply(POSTGRE_UPDATE_USER)
-	res.DeleteUserS = replacer.Apply(POSTGRE_DELETE_USER)
-	res.UpdateFieldsS = replacer.Apply(POSTGRE_UPDATE_USER_FIELDS)
+	res.InitS = append(res.InitS, replacer.Apply(PGUsersInit))
+	res.InitS = append(res.InitS, replacer.Apply(PGUsernameIndex))
+	res.InitS = append(res.InitS, replacer.Apply(PGEMailIndex))
+	res.GetUserS = replacer.Apply(PGQueryUserID)
+	res.GetUserByNameS = replacer.Apply(PGQueryUsername)
+	res.GetUserByEmailS = replacer.Apply(PQQueryEmail)
+	res.InsertUserS = replacer.Apply(PGInsertUser)
+	res.UpdateUserS = replacer.Apply(PGUpdateUser)
+	res.DeleteUserS = replacer.Apply(PGDeleteUser)
+	res.UpdateFieldsS = replacer.Apply(PGUpdateUserFields)
+	res.RowNames = DefaulgPGRowNames
 	return res
 }
 
@@ -88,7 +96,7 @@ func (q *PostgreQueries) UpdateUser(fields []string) string {
 	}
 	updates := make([]string, len(fields))
 	for i, fieldName := range fields {
-		if colName, has := DefaultPostgreRowNames[fieldName]; has {
+		if colName, has := q.RowNames[fieldName]; has {
 			updates[i] = colName + "=$" + strconv.Itoa(i+1)
 		} else {
 			panic(fmt.Sprintf("invalid field name \"%s\": Must be a valid field name of gopherbouncedb.UserModel", fieldName))
@@ -139,22 +147,18 @@ func (b MyPostgreBridge) ConvertTime(t time.Time) interface{} {
 }
 
 func (b MyPostgreBridge) IsDuplicateInsert(err error) bool {
-	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == POSTGRE_KEY_EXITS {
+	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == PGKeyExists {
 		return true
 	}
 	return false
 }
 
 func (b MyPostgreBridge) IsDuplicateUpdate(err error) bool {
-	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == POSTGRE_KEY_EXITS {
+	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == PGKeyExists {
 		return true
 	}
 	return false
 }
-
-var (
-	DefaultPostgreRowNames = gopherbouncedb.DefaultUserRowNames
-)
 
 type PGUserStorage struct {
 	*gopherbouncedb.SQLUserStorage
