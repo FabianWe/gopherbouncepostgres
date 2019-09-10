@@ -57,4 +57,21 @@ WHERE id=$11;`
 	PGUpdateUserFields = `UPDATE $USERS_TABLE_NAME$
 SET $UPDATE_CONTENT$
 WHERE id=$ID_PARAM_NUM$;`
+
+	PGSessionsInit = `CREATE TABLE IF NOT EXISTS $SESSIONS_TABLE_NAME$(
+session_key VARCHAR(40) PRIMARY KEY,
+user_ BIGINT NOT NULL REFERENCES $USERS_TABLE_NAME$(id) ON DELETE CASCADE,
+expire_date TIMESTAMP NOT NULL
+);`
+
+	PGInsertSession = `INSERT INTO $SESSIONS_TABLE_NAME$(
+session_key, user_, expire_date) VALUES($1, $2, $3);`
+
+	PGGetSession = `SELECT * FROM $SESSIONS_TABLE_NAME$ WHERE session_key=$1;`
+
+	PGDeleteSession = `DELETE FROM $SESSIONS_TABLE_NAME$ WHERE session_key=$1;`
+
+	PGCleanUpSession = `DELETE FROM $SESSIONS_TABLE_NAME$ WHERE expire_date < $1;`
+
+	PGDeleteSessionForUser = `DELETE FROM $SESSIONS_TABLE_NAME$ WHERE user_=$1;`
 )

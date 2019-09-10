@@ -50,21 +50,26 @@ func setupPostgreConfigString() string {
 	return config
 }
 
-type pgTestBinding struct {
+type pgUserTestBinding struct {
 	db *sql.DB
 }
 
-func newPGTestBinding() *pgTestBinding {
-	return &pgTestBinding{nil}
+func newPGUserTestBinding() *pgUserTestBinding {
+	return &pgUserTestBinding{nil}
 }
 
 func removeData(db *sql.DB) error {
-	stmt := `DROP TABLE IF EXISTS auth_user;`
+	stmt := `DROP TABLE IF EXISTS auth_session;`
 	_, err := db.Exec(stmt)
+	if err != nil {
+		return err
+	}
+	stmt = `DROP TABLE IF EXISTS auth_user;`
+	_, err = db.Exec(stmt)
 	return err
 }
 
-func (b *pgTestBinding) BeginInstance() gopherbouncedb.UserStorage {
+func (b *pgUserTestBinding) BeginInstance() gopherbouncedb.UserStorage {
 	// create db
 	db, dbErr := sql.Open("postgres", setupPostgreConfigString())
 	if dbErr != nil {
@@ -78,7 +83,7 @@ func (b *pgTestBinding) BeginInstance() gopherbouncedb.UserStorage {
 	return NewPGUserStorage(db, nil)
 }
 
-func (b *pgTestBinding) CloseInstance(s gopherbouncedb.UserStorage) {
+func (b *pgUserTestBinding) CloseInstance(s gopherbouncedb.UserStorage) {
 	if removeErr := removeData(b.db); removeErr != nil {
 		log.Printf("can't delete table entries: %s\n", removeErr.Error())
 	}
@@ -88,21 +93,99 @@ func (b *pgTestBinding) CloseInstance(s gopherbouncedb.UserStorage) {
 }
 
 func TestInit(t *testing.T) {
-	testsuite.TestInitSuite(newPGTestBinding(), t)
+	testsuite.TestInitSuite(newPGUserTestBinding(), t)
 }
 
 func TestInsert(t *testing.T) {
-	testsuite.TestInsertSuite(newPGTestBinding(), true, t)
+	testsuite.TestInsertSuite(newPGUserTestBinding(), true, t)
 }
 
 func TestLookup(t *testing.T) {
-	testsuite.TestLookupSuite(newPGTestBinding(), true, t)
+	testsuite.TestLookupSuite(newPGUserTestBinding(), true, t)
 }
 
 func TestUpdate(t *testing.T) {
-	testsuite.TestUpdateUserSuite(newPGTestBinding(), true, t)
+	testsuite.TestUpdateUserSuite(newPGUserTestBinding(), true, t)
 }
 
 func TestDelete(t *testing.T) {
-	testsuite.TestDeleteUserSuite(newPGTestBinding(), true, t)
+	testsuite.TestDeleteUserSuite(newPGUserTestBinding(), true, t)
 }
+
+type pgSessionTestBinding struct {
+	db *sql.DB
+}
+
+func newPSessionTestBinding() *pgSessionTestBinding {
+	return &pgSessionTestBinding{nil}
+}
+
+func (b *pgSessionTestBinding) BeginInstance() gopherbouncedb.SessionStorage {
+	// create db
+	db, dbErr := sql.Open("postgres", setupPostgreConfigString())
+	if dbErr != nil {
+		panic(fmt.Sprintf("can't create database: %s", dbErr.Error()))
+	}
+	b.db = db
+	// clear tables
+	if removeErr := removeData(b.db); removeErr != nil {
+		log.Printf("can't delete table entries: %s\n", removeErr.Error())
+	}
+	// pg requires the referenced table to exist
+	s := NewPGUserStorage(db, nil)
+	if createUserErr := s.InitUsers(); createUserErr != nil {
+		log.Printf("failed to create user table: %s\n", createUserErr.Error())
+	}
+	// pg also requires the users to exist...
+	// so we create some dummy users
+	u1 := &gopherbouncedb.UserModel{}
+	u1.Username = "u1"
+	u1.EMail = "u1@foo.de"
+	u2 := &gopherbouncedb.UserModel{}
+	u2.Username = "u2"
+	u2.EMail = "u2@bar.de"
+	u3 := &gopherbouncedb.UserModel{}
+	u3.Username = "u3"
+	u3.EMail = "u3@bla.de"
+	users := []*gopherbouncedb.UserModel{u1, u2, u3}
+	for _, u := range users {
+		if _, insertErr := s.InsertUser(u); insertErr != nil {
+			log.Printf("Failed to insert dummy users: %s\n", insertErr.Error())
+		}
+	}
+	return NewPGSessionStorage(db, nil)
+}
+
+func (b *pgSessionTestBinding) CloseInstance(s gopherbouncedb.SessionStorage) {
+	if removeErr := removeData(b.db); removeErr != nil {
+		log.Printf("can't delete table entries: %s\n", removeErr.Error())
+	}
+	if closeErr := b.db.Close(); closeErr != nil {
+		panic(fmt.Sprintf("Can't close database: %s", closeErr.Error()))
+	}
+}
+
+func TestSessionInit(t *testing.T) {
+	testsuite.TestInitSessionSuite(newPSessionTestBinding(), t)
+}
+
+func TestSessionInsert(t *testing.T) {
+	testsuite.TestSessionInsert(newPSessionTestBinding(), t)
+}
+
+func TestSessionGet(t *testing.T) {
+	testsuite.TestSessionGet(newPSessionTestBinding(), t)
+}
+
+func TestSessionDelete(t *testing.T) {
+	testsuite.TestSessionDelete(newPSessionTestBinding(), t)
+}
+
+func TestSessionCleanUp(t *testing.T) {
+	testsuite.TestSessionCleanUp(newPSessionTestBinding(), t)
+}
+
+func TestSessionDeleteForUser(t *testing.T) {
+	testsuite.TestSessionDeleteForUser(newPSessionTestBinding(), t)
+}
+

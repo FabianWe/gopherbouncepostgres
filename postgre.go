@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	DefaulgPGRowNames = gopherbouncedb.DefaultUserRowNames
+	DefaultPGRowNames = gopherbouncedb.DefaultUserRowNames
 )
 
 const (
@@ -35,8 +35,51 @@ const (
 	PGKeyExists = "23505"
 )
 
-// PostgreQueries implements gopherbouncedb.UserSQL with support for Postgres.
-type PostgreQueries struct {
+
+type PGBridge struct{}
+
+func NewPGBridge() PGBridge {
+	return PGBridge{}
+}
+
+func (b PGBridge) TimeScanType() interface{} {
+	var res time.Time
+	return &res
+}
+
+func (b PGBridge) ConvertTimeScanType(val interface{}) (time.Time, error) {
+	switch v := val.(type) {
+	case *time.Time:
+		return *v, nil
+	case time.Time:
+		return v, nil
+	default:
+		var zeroT time.Time
+		return zeroT, fmt.Errorf("PGBridge.ConvertTimeScanType: Expected value of *time.Time, got %v",
+			reflect.TypeOf(val))
+	}
+}
+
+func (b PGBridge) ConvertTime(t time.Time) interface{} {
+	return t
+}
+
+func (b PGBridge) IsDuplicateInsert(err error) bool {
+	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == PGKeyExists {
+		return true
+	}
+	return false
+}
+
+func (b PGBridge) IsDuplicateUpdate(err error) bool {
+	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == PGKeyExists {
+		return true
+	}
+	return false
+}
+
+// PGQueries implements gopherbouncedb.UserSQL with support for Postgres.
+type PGQueries struct {
 	InitS []string
 	GetUserS, GetUserByNameS, GetUserByEmailS, InsertUserS,
 	UpdateUserS, DeleteUserS, UpdateFieldsS string
@@ -48,17 +91,14 @@ func DefaultPostgreReplacer() *gopherbouncedb.SQLTemplateReplacer {
 	return gopherbouncedb.DefaultSQLReplacer()
 }
 
-func NewMPostgreQueries(replaceMapping map[string]string) *PostgreQueries {
+func NewPGQueries(replaceMapping map[string]string) *PGQueries {
 	replacer := DefaultPostgreReplacer()
 	if replaceMapping != nil {
 		replacer.UpdateDict(replaceMapping)
 	}
-	res := &PostgreQueries{}
+	res := &PGQueries{}
 	res.Replacer = replacer
-	// first all init strings
 	res.InitS = append(res.InitS, replacer.Apply(PGUsersInit))
-	res.InitS = append(res.InitS, replacer.Apply(PGUsernameIndex))
-	res.InitS = append(res.InitS, replacer.Apply(PGEMailIndex))
 	res.GetUserS = replacer.Apply(PGQueryUserID)
 	res.GetUserByNameS = replacer.Apply(PGQueryUsername)
 	res.GetUserByEmailS = replacer.Apply(PQQueryEmail)
@@ -66,31 +106,31 @@ func NewMPostgreQueries(replaceMapping map[string]string) *PostgreQueries {
 	res.UpdateUserS = replacer.Apply(PGUpdateUser)
 	res.DeleteUserS = replacer.Apply(PGDeleteUser)
 	res.UpdateFieldsS = replacer.Apply(PGUpdateUserFields)
-	res.RowNames = DefaulgPGRowNames
+	res.RowNames = DefaultPGRowNames
 	return res
 }
 
-func (q *PostgreQueries) InitUsers() []string {
+func (q *PGQueries) InitUsers() []string {
 	return q.InitS
 }
 
-func (q *PostgreQueries) GetUser() string {
+func (q *PGQueries) GetUser() string {
 	return q.GetUserS
 }
 
-func (q *PostgreQueries) GetUserByName() string {
+func (q *PGQueries) GetUserByName() string {
 	return q.GetUserByNameS
 }
 
-func (q *PostgreQueries) GetUserByEmail() string {
+func (q *PGQueries) GetUserByEmail() string {
 	return q.GetUserByEmailS
 }
 
-func (q *PostgreQueries) InsertUser() string {
+func (q *PGQueries) InsertUser() string {
 	return q.InsertUserS
 }
 
-func (q *PostgreQueries) UpdateUser(fields []string) string {
+func (q *PGQueries) UpdateUser(fields []string) string {
 	if len(fields) == 0 || !q.SupportsUserFields() {
 		return q.UpdateUserS
 	}
@@ -110,54 +150,12 @@ func (q *PostgreQueries) UpdateUser(fields []string) string {
 	return stmt
 }
 
-func (q *PostgreQueries) DeleteUser() string {
+func (q *PGQueries) DeleteUser() string {
 	return q.DeleteUserS
 }
 
-func (q *PostgreQueries) SupportsUserFields() bool {
+func (q *PGQueries) SupportsUserFields() bool {
 	return q.UpdateFieldsS != ""
-}
-
-type MyPostgreBridge struct{}
-
-func NewMyPostgreBridge() MyPostgreBridge {
-	return MyPostgreBridge{}
-}
-
-func (b MyPostgreBridge) TimeScanType() interface{} {
-	var res time.Time
-	return &res
-}
-
-func (b MyPostgreBridge) ConvertTimeScanType(val interface{}) (time.Time, error) {
-	switch v := val.(type) {
-	case *time.Time:
-		return *v, nil
-	case time.Time:
-		return v, nil
-	default:
-		var zeroT time.Time
-		return zeroT, fmt.Errorf("MyPostgreBridge.ConvertTimeScanType: Expected value of *time.Time, got %v",
-			reflect.TypeOf(val))
-	}
-}
-
-func (b MyPostgreBridge) ConvertTime(t time.Time) interface{} {
-	return t
-}
-
-func (b MyPostgreBridge) IsDuplicateInsert(err error) bool {
-	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == PGKeyExists {
-		return true
-	}
-	return false
-}
-
-func (b MyPostgreBridge) IsDuplicateUpdate(err error) bool {
-	if postgreErr, ok := err.(*pq.Error); ok && postgreErr.Code == PGKeyExists {
-		return true
-	}
-	return false
 }
 
 type PGUserStorage struct {
@@ -165,8 +163,8 @@ type PGUserStorage struct {
 }
 
 func NewPGUserStorage(db *sql.DB, replaceMapping map[string]string) *PGUserStorage {
-	queries := NewMPostgreQueries(replaceMapping)
-	bridge := NewMyPostgreBridge()
+	queries := NewPGQueries(replaceMapping)
+	bridge := NewPGBridge()
 	sqlStorage := gopherbouncedb.NewSQLUserStorage(db, queries, bridge)
 	res := PGUserStorage{sqlStorage}
 	return &res
@@ -180,18 +178,18 @@ func (s *PGUserStorage) InsertUser(user *gopherbouncedb.UserModel) (gopherbounce
 	zeroTime = zeroTime.UTC()
 	// use the bridge conversion for time
 	// we do this because the bridge could be changed and doing this direct insert could go wrong
-	dateJoined := s.Bridge.ConvertTime(now)
-	lastLogin := s.Bridge.ConvertTime(zeroTime)
+	dateJoined := s.UserBridge.ConvertTime(now)
+	lastLogin := s.UserBridge.ConvertTime(zeroTime)
 	user.DateJoined = now
 	user.LastLogin = zeroTime
 	var userID gopherbouncedb.UserID
-	err := s.DB.QueryRow(s.Queries.InsertUser(),
+	err := s.UserDB.QueryRow(s.UserQueries.InsertUser(),
 		user.Username, user.Password, user.EMail, user.FirstName,
 		user.LastName, user.IsSuperUser, user.IsStaff,
 		user.IsActive, dateJoined, lastLogin).Scan(&userID)
 	if err != nil {
 		user.ID = gopherbouncedb.InvalidUserID
-		if s.Bridge.IsDuplicateInsert(err) {
+		if s.UserBridge.IsDuplicateInsert(err) {
 			return gopherbouncedb.InvalidUserID,
 				gopherbouncedb.NewUserExists(fmt.Sprintf("unique constraint failed: %s", err.Error()))
 		}
@@ -199,4 +197,72 @@ func (s *PGUserStorage) InsertUser(user *gopherbouncedb.UserModel) (gopherbounce
 	}
 	user.ID = gopherbouncedb.UserID(userID)
 	return gopherbouncedb.UserID(userID), nil
+}
+
+// PGSessionQueries implements gopherbouncedb.SessionSQL with support for Postgres.
+type PGSessionQueries struct {
+	InitS []string
+	InsertSessionS, GetSessionS, DeleteSessionS, CleanUpSessionS, DeleteForUserSessionS string
+	Replacer *gopherbouncedb.SQLTemplateReplacer
+}
+
+// NewPGSessionQueries returns new queries given the replacement mapping that is used to update
+// the default replacer.
+//
+// That is it uses the default Postgres replacer, but updates the fields given in
+// replaceMapping to overwrite existing values / insert new ones.
+func NewPGSessionQueries(replaceMapping map[string]string) *PGSessionQueries {
+	replacer := DefaultPostgreReplacer()
+	if replaceMapping != nil {
+		replacer.UpdateDict(replaceMapping)
+	}
+	res := &PGSessionQueries{}
+	res.Replacer = replacer
+	res.InitS = append(res.InitS, replacer.Apply(PGSessionsInit))
+	res.InsertSessionS = replacer.Apply(PGInsertSession)
+	res.GetSessionS = replacer.Apply(PGGetSession)
+	res.DeleteSessionS = replacer.Apply(PGDeleteSession)
+	res.CleanUpSessionS = replacer.Apply(PGCleanUpSession)
+	res.DeleteForUserSessionS = replacer.Apply(PGDeleteSessionForUser)
+	return res
+}
+
+func (q *PGSessionQueries) InitSessions() []string {
+	return q.InitS
+}
+
+func (q *PGSessionQueries) GetSession() string {
+	return q.GetSessionS
+}
+
+func (q *PGSessionQueries) InsertSession() string {
+	return q.InsertSessionS
+}
+
+func (q *PGSessionQueries) DeleteSession() string {
+	return q.DeleteSessionS
+}
+
+func (q *PGSessionQueries) CleanUpSession() string {
+	return q.CleanUpSessionS
+}
+
+func (q *PGSessionQueries) DeleteForUserSession() string {
+	return q.DeleteForUserSessionS
+}
+
+// PGSessionStorage is as session storage based on Postgres.
+type PGSessionStorage struct {
+	*gopherbouncedb.SQLSessionStorage
+}
+
+// NewPGSessionStorage creates a new Postgres session storage given the database connection
+// and the replacement mapping used to create the queries with NewPGSessionQueries.
+//
+// If you want to configure any options please read the gopherbounce wiki.
+func NewPGSessionStorage(db *sql.DB, replaceMapping map[string]string) *PGSessionStorage {
+	queries := NewPGSessionQueries(replaceMapping)
+	bridge := NewPGBridge()
+	sqlStorage := gopherbouncedb.NewSQLSessionStorage(db, queries, bridge)
+	return &PGSessionStorage{sqlStorage}
 }
