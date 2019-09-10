@@ -266,3 +266,18 @@ func NewPGSessionStorage(db *sql.DB, replaceMapping map[string]string) *PGSessio
 	sqlStorage := gopherbouncedb.NewSQLSessionStorage(db, queries, bridge)
 	return &PGSessionStorage{sqlStorage}
 }
+
+// PGStorage combines a user storage and a session storage (both based on Postgres)
+// to implement gopherbouncedb.GoauthStorage.
+type PGStorage struct {
+	*PGUserStorage
+	*PGSessionStorage
+}
+
+// NewPGStorage returns a new PGStorage.
+func NewPGStorage(db *sql.DB, replaceMapping map[string]string) *PGStorage {
+	return &PGStorage{
+		NewPGUserStorage(db, replaceMapping),
+		NewPGSessionStorage(db, replaceMapping),
+	}
+}
