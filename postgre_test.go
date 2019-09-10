@@ -78,7 +78,7 @@ func (b *pgTestBinding) BeginInstance() gopherbouncedb.UserStorage {
 	return NewPGUserStorage(db, nil)
 }
 
-func (b *pgTestBinding) ClosteInstance(s gopherbouncedb.UserStorage) {
+func (b *pgTestBinding) CloseInstance(s gopherbouncedb.UserStorage) {
 	if removeErr := removeData(b.db); removeErr != nil {
 		log.Printf("can't delete table entries: %s\n", removeErr.Error())
 	}
