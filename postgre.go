@@ -82,7 +82,7 @@ func (b PGBridge) IsDuplicateUpdate(err error) bool {
 type PGQueries struct {
 	InitS []string
 	GetUserS, GetUserByNameS, GetUserByEmailS, InsertUserS,
-	UpdateUserS, DeleteUserS, UpdateFieldsS string
+	UpdateUserS, DeleteUserS, UpdateFieldsS, ListUsersS string
 	Replacer *gopherbouncedb.SQLTemplateReplacer
 	RowNames map[string]string
 }
@@ -106,6 +106,7 @@ func NewPGQueries(replaceMapping map[string]string) *PGQueries {
 	res.UpdateUserS = replacer.Apply(PGUpdateUser)
 	res.DeleteUserS = replacer.Apply(PGDeleteUser)
 	res.UpdateFieldsS = replacer.Apply(PGUpdateUserFields)
+	res.ListUsersS = replacer.Apply(PGListUsers)
 	res.RowNames = DefaultPGRowNames
 	return res
 }
@@ -152,6 +153,10 @@ func (q *PGQueries) UpdateUser(fields []string) string {
 
 func (q *PGQueries) DeleteUser() string {
 	return q.DeleteUserS
+}
+
+func (q *PGQueries) ListUsers() string {
+	return q.ListUsersS
 }
 
 func (q *PGQueries) SupportsUserFields() bool {
@@ -268,7 +273,7 @@ func NewPGSessionStorage(db *sql.DB, replaceMapping map[string]string) *PGSessio
 }
 
 // PGStorage combines a user storage and a session storage (both based on Postgres)
-// to implement gopherbouncedb.GoauthStorage.
+// to implement gopherbouncedb.Storage.
 type PGStorage struct {
 	*PGUserStorage
 	*PGSessionStorage
